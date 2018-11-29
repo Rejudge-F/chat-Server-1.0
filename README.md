@@ -1,6 +1,8 @@
 # chat-Server
 使用方法：
-$: ./server <PORT> <\br>
+
+$: ./server <PORT>
+  
 $: ./client <IP> <PORT>
   
   
