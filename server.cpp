@@ -3,7 +3,7 @@
 //  main.cpp
 //  Server
 //
-//  Created by 张峰 on 2018/11/28.
+//  Created by 张峰 on 2018/12/01.
 //  Copyright © 2018年 张峰. All rights reserved.
 
 #include <unistd.h>
@@ -16,16 +16,28 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <string>
+#include <queue>
+#include <vector>
+#include <signal.h>
 
 #define BACKLOG 20
 #define MAX_CON_NO 10
 #define MAX_DATA_SIZE 1024
+
+static void sig_usr1(int sig) {
+    exit(1);
+}
 
 int main(int argc, char * argv[]) {
     if(argc != 2) {
         perror("Usage: ./server <PORT>");
         exit(0);
     }
+    
+    std::vector<int> que_usr;
+    int usr = 0, pid = 0;
+    que_usr.clear();
+    
     int client_sock, server_sock;
     sockaddr_in server_addr, client_addr;
     client_sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -60,9 +72,16 @@ int main(int argc, char * argv[]) {
         if(client_sock < 0) {
             perror("accept");
             exit(0);
+        } else {
+            que_usr.push_back(client_sock);
+            usr++;
         }
         printf("<IP: %s> join in.\n", inet_ntop(AF_INET, &client_addr.sin_addr.s_addr, IP, MAX_DATA_SIZE));
-        pid_t pid = fork();
+        printf("Now has %d users online.\n", usr);
+        if(pid != 0) {
+            kill(pid, SIGUSR1);
+        }
+        pid = fork();
         if(pid < 0) {
             perror("fork");
             exit(1);
@@ -79,9 +98,24 @@ int main(int argc, char * argv[]) {
                 memset(recvBuff, 0, sizeof(recvBuff));
             }
         }
-        close(client_sock);
+        
+        pid = fork();
+        if(pid < 0) {
+            perror("fork");
+            exit(1);
+        } else if(pid == 0){
+            signal(SIGUSR1, sig_usr1);
+            while(1) {
+                fgets(sendBuff, sizeof(sendBuff), stdin);
+                for(int i = 0; i < usr; i++) {
+                    write(que_usr[i], sendBuff, strlen(sendBuff));
+                }
+            }
+            memset(sendBuff, 0, sizeof(sendBuff));
+        }
     }
-    
+    close(client_sock);
     return 0;
 }
+
 
