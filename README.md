@@ -1,9 +1,9 @@
 # chat-Server
 使用方法：
 
-$: ./server <PORT>
+$: ./server \\<PORT>
   
-$: ./client <IP> <PORT>
+$: ./client \\<IP> \\<PORT>
   
   
 C++使用fork实现服务器与客户端之间聊天。
