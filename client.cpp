@@ -2,9 +2,10 @@
 //  main.cpp
 //  Server
 //
-//  Created by 张峰 on 2018/11/28.
+//  Created by 张峰 on 2018/12/06.
 //  Copyright © 2018年 张峰. All rights reserved.
 //
+#include <signal.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,14 +25,14 @@ int main(int argc,char *argv[]) {
         puts("Usage: ./Client <IP> <PORT>");
         exit(1);
     }
-
+    
     int client_sock = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(atoi(argv[2]));
     server_addr.sin_addr.s_addr = inet_addr(argv[1]);
-
+    
     connect(client_sock, (sockaddr *) & server_addr, sizeof(server_addr));
     if(client_sock < 0) {
         perror("connect");
@@ -42,7 +43,7 @@ int main(int argc,char *argv[]) {
     if(pid < 0) {
         perror("fork");
         exit(1);
-    } else if(pid > 0) {
+    } else if(pid == 0) {
         while(true) {
             fgets(send_buff, MAX_DATA_SIZE, stdin);
             //printf("#Client: %s\n", send_buff);
@@ -51,10 +52,17 @@ int main(int argc,char *argv[]) {
         }
     } else {
         while(true) {
-            recv(client_sock, recv_buff, MAX_DATA_SIZE, 0);
+            ssize_t len = recv(client_sock, recv_buff, MAX_DATA_SIZE, 0);
+            if(len <= 0) {
+                puts("Server Closed");
+                perror("recv");
+                close(client_sock);
+                exit(1);
+            }
             printf("#Server: %s", recv_buff);
             memset(recv_buff, 0, sizeof(recv_buff));
         }
+        kill(pid, SIGKILL);
     }
     close(client_sock);
     return 0;
