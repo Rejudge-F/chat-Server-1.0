@@ -1,10 +1,7 @@
-//
-//  main.cpp
-//  Server
-//
-//  Created by 张峰 on 2018/12/06.
-//  Copyright © 2018年 张峰. All rights reserved.
-//
+// client.cpp
+// create by zhangfeng
+// date: 2018/12/10
+
 #include <signal.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -20,11 +17,21 @@
 #define MAX_CON_NO 10
 #define MAX_DATA_SIZE 4096
 
+struct User {
+    char name[20];
+    char passwd[20];
+};
+
 int main(int argc,char *argv[]) {
-    if(argc != 3) {
-        puts("Usage: ./Client <IP> <PORT>");
+    if(argc != 5) {
+        puts("Usage: ./Client <IP> <PORT> <user_name> <user_password>");
         exit(1);
     }
+    User user;
+    strcpy(user.name, argv[3]);
+    strcpy(user.passwd, argv[4]);
+    
+    printf("user_name: %s\nuser_password:%s\n", user.name, user.passwd);
     
     int client_sock = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in server_addr;
@@ -38,7 +45,24 @@ int main(int argc,char *argv[]) {
         perror("connect");
         exit(1);
     }
+    
     char send_buff[MAX_DATA_SIZE], recv_buff[MAX_DATA_SIZE];
+    
+    printf("loading....\n");
+    
+    // identify
+    send(client_sock, (char *) & user, sizeof(user), 0);
+    read(client_sock, recv_buff, MAX_DATA_SIZE);
+    if(recv_buff[0] == 'n') {
+        puts("账号或者密码错误，请重试");
+        close(client_sock);
+        exit(1);
+    } else {
+        puts("登录成功");
+        memset(recv_buff, 0, MAX_DATA_SIZE);
+    }
+    
+    
     int pid = fork();
     if(pid < 0) {
         perror("fork");
