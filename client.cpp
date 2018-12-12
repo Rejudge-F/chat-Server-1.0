@@ -1,93 +1,129 @@
 // client.cpp
-// create by zhangfeng
-// date: 2018/12/10
-
-#include <signal.h>
+// create by ReJ
+// date: 2018/12/12
 #include <unistd.h>
+#include <iostream>
 #include <stdio.h>
 #include <stdlib.h>
-#include <errno.h>
-#include <string.h>
-#include <sys/types.h>
 #include <sys/socket.h>
-#include <netinet/in.h>
 #include <arpa/inet.h>
+#include <cstring>
+#include <algorithm>
+#include <sys/errno.h>
+#include <sys/select.h>
 
-#define BACKLOG 20
-#define MAX_CON_NO 10
-#define MAX_DATA_SIZE 4096
+#define MAX_DATA_SIZE 1024
 
 struct User {
-    char name[20];
-    char passwd[20];
+public:
+    User() {};
+    User(int _sock, int _id, char * _name, char * _password) {
+        id = _id;
+        sock = _sock;
+        strcpy(name, _name);
+        strcpy(password, _password);
+    }
+    int id;
+    int sock;
+    char IP[15];
+    char name[15];
+    char password[20];
 };
 
-int main(int argc,char *argv[]) {
+void printtime() {
+    time_t timeep;
+    time(&timeep);
+    printf("%s\n", ctime(&timeep));
+}
+
+int main(int argc, char * argv[]) {
     if(argc != 5) {
-        puts("Usage: ./Client <IP> <PORT> <user_name> <user_password>");
-        exit(1);
+        puts("./cient <IP> <PORT> <ID> <PASSWORD>");
+        exit(0);
     }
-    User user;
-    strcpy(user.name, argv[3]);
-    strcpy(user.passwd, argv[4]);
-    
-    printf("user_name: %s\nuser_password:%s\n", user.name, user.passwd);
-    
-    int client_sock = socket(AF_INET, SOCK_STREAM, 0);
+    fd_set server_fd;
+    char send_buff[MAX_DATA_SIZE], recv_buff[MAX_DATA_SIZE];
+    User client;
+    int server_sock = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(atoi(argv[2]));
     server_addr.sin_addr.s_addr = inet_addr(argv[1]);
-    
-    connect(client_sock, (sockaddr *) & server_addr, sizeof(server_addr));
-    if(client_sock < 0) {
-        perror("connect");
+    printf("%s loading...\n", argv[3]); 
+    if(connect(server_sock, (sockaddr *) & server_addr, sizeof(server_addr)) < 0) {
+        perror("connect failed");
         exit(1);
     }
-    
-    char send_buff[MAX_DATA_SIZE], recv_buff[MAX_DATA_SIZE];
-    
-    printf("loading....\n");
-    
-    // identify
-    send(client_sock, (char *) & user, sizeof(user), 0);
-    read(client_sock, recv_buff, MAX_DATA_SIZE);
+    client.id = atoi(argv[3]);
+    strcpy(client.password, argv[4]);
+    if((write(server_sock, (char *) & client, sizeof(client))) <= 0) {
+        perror("send message failed...");
+        exit(1);
+    }
+    if(read(server_sock, recv_buff, MAX_DATA_SIZE) <= 0) {
+        perror("read result failed...");
+        exit(1);
+    }
+
     if(recv_buff[0] == 'n') {
-        puts("账号或者密码错误，请重试");
-        close(client_sock);
-        exit(1);
-    } else {
-        puts("登录成功");
-        memset(recv_buff, 0, MAX_DATA_SIZE);
+        puts("please check user_name or user_password");
+        exit(0);
     }
-    
-    
-    int pid = fork();
-    if(pid < 0) {
-        perror("fork");
-        exit(1);
-    } else if(pid == 0) {
-        while(true) {
-            fgets(send_buff, MAX_DATA_SIZE, stdin);
-            //printf("#Client: %s\n", send_buff);
-            send(client_sock, send_buff, strlen(send_buff), 0);
-            memset(send_buff, 0, sizeof(send_buff));
+    puts("登录成功");
+    memset(recv_buff, 0, sizeof(recv_buff));
+
+    int max_server_fd = 0;
+    timeval timeout = {0};
+    timeout.tv_usec = 500;
+    while(true) {
+        FD_ZERO(&server_fd);
+        FD_SET(server_sock, &server_fd);
+        max_server_fd = std::max(max_server_fd, server_sock);
+        switch (select(max_server_fd + 1, &server_fd, NULL, NULL, &timeout)) {
+            case -1: {
+                perror("select error");
+                exit(1);
+            } 
+            case 0: break;
+            default : { 
+                if(FD_ISSET(server_sock, &server_fd)) {
+                     ssize_t recv_size = read(server_sock, recv_buff, MAX_DATA_SIZE);
+                     if(recv_size <= 0) {
+                        puts("server close");
+                        close(server_sock);
+                        exit(1);
+                     }
+                     printtime();
+                     printf("#server: %s", recv_buff);
+                     memset(recv_buff, 0, sizeof(recv_buff));
+                }
+            }
         }
-    } else {
-        while(true) {
-            ssize_t len = recv(client_sock, recv_buff, MAX_DATA_SIZE, 0);
-            if(len <= 0) {
-                puts("Server Closed");
-                perror("recv");
-                close(client_sock);
+        FD_ZERO(&server_fd);
+        FD_SET(STDIN_FILENO, &server_fd);
+        switch (select(STDIN_FILENO + 1, &server_fd, NULL, NULL, &timeout)) {
+            case -1: {
+                perror("select error");
                 exit(1);
             }
-            printf("#Server: %s", recv_buff);
-            memset(recv_buff, 0, sizeof(recv_buff));
+            case 0: break;
+            default : {
+                if(FD_ISSET(STDIN_FILENO, &server_fd)) {
+                    ssize_t recv_len = read(STDIN_FILENO, recv_buff, MAX_DATA_SIZE);
+                    if(recv_len <= 0) {
+                        perror("read failed");
+                        exit(1);
+                    }
+                    ssize_t send_len = write(server_sock, recv_buff, MAX_DATA_SIZE);
+                    if(send_len <= 0) {
+                        perror("write failed");
+                        exit(1);
+                    }
+                }
+            }
         }
-        kill(pid, SIGKILL);
     }
-    close(client_sock);
     return 0;
 }
+
