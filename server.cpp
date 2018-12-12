@@ -1,209 +1,243 @@
 // server.cpp
 // create by ReJ
-// date: 2018/12/10
-
-#include <iostream>
+// date: 2018/12/12
+#include <cstdlib>
+#include <cstdio>
 #include <stdio.h>
-#include <set>
 #include <stdlib.h>
-#include <string.h>
 #include <sys/socket.h>
-#include <unistd.h>
-#include <arpa/inet.h>
 #include <sys/errno.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <ctime>
+#include <string>
+#include <mysql/mysql.h>
+#include <string.h>
 #include <sys/select.h>
+#include <set>
 #define max(a, b) (a > b ? a : b)
-#define min(a, b) (a < b ? a : b)
+#define HOST "localhost"
+#define USER_NAME "root"
+#define PASSWORD "Zhangfeng//0"
+#define DATABASE "users"
+#define BACKLOG 128
+#define MAX_DATA_SIZE 1024
 
-const int MAX_CONN_USER = 128;
-const int MAX_DATA_SIZE = 1024;
-
-struct rUser {
-    rUser(char * _user = "", char * _pawd = "") {
-        strcpy(user, _user);
-        strcpy(pawd, _pawd);
+class User {
+public:
+    User(){};
+    User(int _sock, int _id, char * _name, char * _password) {
+        id = _id;
+        sock = _sock;
+        strcpy(name, _name);
+        strcpy(password, _password);
     }
-    char user[20];
-    char pawd[20];
-} admin;
+    bool operator < (const User & b) const {
+        return id < b.id;
+    }
+    int id;
+    int sock;
+    char IP[15];
+    char name[15];
+    char password[20];
+};
+
+class Server {
+public:
+    Server(int port) {
+        server_sock = socket(AF_INET, SOCK_STREAM, 0);
+        client_sock = socket(AF_INET, SOCK_STREAM, 0);
+        memset(&client_addr, 0, sizeof(client_addr));
+        memset(&server_addr, 0, sizeof(server_addr));
+        server_addr.sin_family = AF_INET;
+        server_addr.sin_port = htons(port);
+        server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+        //Work();
+    }
+
+    bool mysql_check_login(User & login_user) {
+        MYSQL mysql_conn;
+        MYSQL_RES * ptr_res;
+        MYSQL_ROW result_row;
+        char sql[256] = ("select * from clients where id = \'");
+        strcat(sql, std::to_string(login_user.id).c_str());
+        strcat(sql, const_cast<char *>("\' and user_password = \'"));
+        strcat(sql, login_user.password);
+        strcat(sql, const_cast<char *>("\'"));
+        printf("sql: %s\n", sql);
+        mysql_init(&mysql_conn);
+        if(mysql_real_connect(&mysql_conn, HOST, USER_NAME, PASSWORD, DATABASE, 0, NULL, CLIENT_FOUND_ROWS)) {
+            int res = mysql_query(&mysql_conn, sql);
+            if(res) {
+                puts("select error");
+                return false;
+            } else {
+                ptr_res = mysql_store_result(&mysql_conn);
+                int row = mysql_num_rows(ptr_res);
+                if(row == 0) {
+                    printf("%d is not valid...\n", login_user.id);
+                    return false;
+                } else {
+                    printf("accept %d...\n", login_user.id);
+                    result_row = mysql_fetch_row(ptr_res);
+                    strcpy(login_user.name, result_row[1]);
+                    return true;
+                }
+            }
+        } else {
+            perror("mysql connect failed");
+            return false;
+        }
+
+    }
+
+    void printtime() {
+        time_t timeep;
+        time(&timeep);
+        printf("%s", ctime(&timeep));
+    }
+
+    bool Work() {
+        if(bind(server_sock, (sockaddr *) & server_addr, sizeof(server_addr)) < 0) {
+            perror("bind failed");
+            exit(1);
+        }
+        puts("success to bind...");
+        int lis;
+        if((lis = listen(server_sock, BACKLOG)) < 0) {
+            perror("listen failed");
+            exit(1);
+        }
+        puts("success to listen server...");
+        timeval timeout = {0};
+        int server_max_fd = 0, client_max_fd = 0;
+
+        socklen_t size = sizeof(client_addr);
+
+        while(true) {
+            FD_ZERO(&server_fd);
+            FD_ZERO(&client_fd);
+            FD_ZERO(&stdin_fd);
+            FD_SET(server_sock, &server_fd);
+            server_max_fd = max(server_max_fd, server_sock);
+            timeout.tv_usec = 500;
+            // select accept
+            switch (select(server_max_fd + 1, &server_fd, NULL, NULL, &timeout)) {
+                case -1: {
+                    perror("select failed");
+                    exit(1);
+                    break;
+                }
+                case 0: break;
+                default : {
+                    if(FD_ISSET(server_sock, &server_fd)) {
+                        client_sock = accept(server_sock, (sockaddr * ) & client_addr, &size);
+                        if(client_sock < 0) {
+                            perror("accept failed");
+                            exit(1);
+                        }
+                        if(read(client_sock, (char *) & client, sizeof(User)) < 0) {
+                            perror("read failed");
+                            close(client_sock);
+                        } else {
+                            printf("user_name: %d\nuser_password: %s\n", client.id, client.password);
+                            if(mysql_check_login(client)) {
+                                client.sock = client_sock;
+                                inet_ntop(AF_INET, &client_addr.sin_addr.s_addr, client.IP, sizeof(client.IP));
+                                total_user.insert(client);
+                                printf("%s has login...", client.name);
+                                printf("now has %d users online...\n", (int)total_user.size());
+                                strcpy(send_buff, "yes");
+                                write(client_sock, send_buff, sizeof(send_buff));
+
+                            } else {
+                                strcpy(send_buff, "no");
+                                write(client_sock, send_buff, sizeof(send_buff));
+                                printf("Reject login!");
+                                break;
+                            }
+                            memset(send_buff, 0, sizeof(send_buff));
+                            client_max_fd = max(client_max_fd, client_sock);
+                        }
+                    }
+                    break;          
+                }
+            } 
+            /***************select accept end********************/ 
+
+            for(auto user : total_user) {
+                FD_SET(user.sock, &client_fd);
+            }
+
+            /***************select read start*******************/
+            switch (select(client_max_fd + 1, &client_fd, NULL, NULL, &timeout)) {
+                case -1: {
+                    perror("select failed");
+                    exit(1);
+                }    
+                case 0: break;
+                default :{
+                    for(auto user : total_user) {
+                        if(FD_ISSET(user.sock, &client_fd)) {
+                            ssize_t recv_len = read(user.sock, recv_buff, MAX_DATA_SIZE);
+                            if(recv_len <= 0) {
+                                printf("%d has offline...\n", user.id);
+                                total_user.erase(user);
+                                //close(user.sock);
+                            } else {
+                                printtime();
+                                printf("%s: %s", user.name, recv_buff);
+                                memset(recv_buff, 0, sizeof(recv_buff));
+                            }
+                        }
+                    }         
+                }
+            }
+            /************select read end***********************/
+            
+            FD_SET(STDIN_FILENO, &stdin_fd);
+
+            /************select write start********************/
+            
+            switch (select(STDIN_FILENO + 1, &stdin_fd, NULL, NULL, &timeout)) {
+                case -1: {
+                    perror("select failed");
+                    exit(1);
+                }
+                case 0: break;
+                default : {
+                    if(FD_ISSET(STDIN_FILENO, &stdin_fd)) {
+                        read(STDIN_FILENO, send_buff, MAX_DATA_SIZE);
+                        for(auto user : total_user) {
+                            ssize_t len = write(user.sock, send_buff, strlen(send_buff));
+                            if(len < 0) {
+                                perror("send faied");
+                            } else {
+                                printf("send Mesage to %s succenss!\n", user.name);
+                            }
+                        }
+                    }          
+                }
+            }
+            /***************select write end*******************/
+        }
+    }
+private:
+    int client_sock;
+    int server_sock;
+    User client;
+    std::set<User> total_user;
+    sockaddr_in server_addr, client_addr;
+    char IP[MAX_DATA_SIZE], recv_buff[MAX_DATA_SIZE], send_buff[MAX_DATA_SIZE];
+    fd_set server_fd, client_fd, stdin_fd;
+};
 
 int main(int argc, char * argv[]) {
     if(argc != 2) {
         puts("Usage: ./server <PORT>");
-        exit(0);
+        exit(1);
     }
-    //init admin
-    strcpy(admin.user, "admin");
-    strcpy(admin.pawd, "admin");
-    rUser puser;
-    
-    fd_set server_fd, client_fd;
-    
-    int server_sock, client_sock;
-    server_sock = socket(AF_INET, SOCK_STREAM, 0);
-    client_sock = socket(AF_INET, SOCK_STREAM, 0);
-    
-    printf("Success to init socket...\n");
-    
-    std::set<int> User;
-    User.clear();
-    
-    sockaddr_in server_addr = {0}, client_addr = {0};
-    bzero(&server_addr, sizeof(server_addr));
-    bzero(&client_addr, sizeof(client_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(atoi(argv[1]));
-    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    
-    if(bind(server_sock, (sockaddr *) & server_addr, sizeof(server_addr)) < 0) {
-        perror("bind");
-        exit(0);
-    }
-    
-    printf("Success to bind server with PORT: %d...\n", atoi(argv[1]));
-    
-    if((listen(server_sock, MAX_CONN_USER)) < 0) {
-        perror("listen");
-        exit(0);
-    }
-    
-    puts("Success to listen server...");
-    
-    timeval timeout = {0};
-    timeout.tv_sec = 1;
-    timeout.tv_usec = 0;
-    socklen_t sinSize = sizeof(client_addr);
-    
-    FD_ZERO(&server_fd);
-    FD_ZERO(&client_fd);
-    FD_SET(server_sock, &server_fd);
-    
-    int maxServerFd = server_sock, maxClientFd = 0, conn_user = 0;
-    
-    char IP[MAX_DATA_SIZE], sendBuff[MAX_DATA_SIZE], recvBuff[MAX_DATA_SIZE];
-    
-    while(1) {
-        FD_ZERO(&server_fd);
-        FD_ZERO(&client_fd);
-        FD_SET(server_sock, &server_fd);
-        maxServerFd = max(maxServerFd, server_sock);
-        timeout.tv_sec = 1; // time for select
-        switch(select(maxServerFd + 1, &server_fd, NULL, NULL, &timeout)) {
-            case -1: {
-                perror("select1");
-                break;
-            }
-            case 0: break;
-            default: {
-                if(FD_ISSET(server_sock, &server_fd)) {
-                    client_sock = accept(server_sock, (sockaddr *) & client_addr, &sinSize);
-                    if(client_sock == -1) {
-                        perror("accept");
-                        exit(1);
-                    }
-                    
-                    // identify user is valid
-                    ssize_t len = recv(client_sock, (char *) &puser, sizeof(struct rUser), 0);
-                    printf("收到消息如下：\nuser_name: %s\nuser_password: %s\n", puser.user, puser.pawd);
-                    if(len <= 0) {
-                        perror("fail to recive user data");
-                        close(client_sock);
-                        break;
-                    } else {
-                        if(strcmp(admin.user, puser.user) == 0 && strcmp(admin.pawd, puser.pawd) == 0) {
-                            strcpy(sendBuff, "yes");
-                            puts("验证成功");
-                            write(client_sock, sendBuff, sizeof(sendBuff));
-                            bzero(sendBuff, 10);
-                        } else {
-                            strcpy(sendBuff, "no");
-                            puts("验证失败");
-                            write(client_sock, sendBuff, sizeof(sendBuff));
-                            bzero(sendBuff, 10);
-                            close(client_sock);
-                            break;
-                        }
-                    }
-                    
-                    User.insert(client_sock);
-                    //printf("user_name: %s\nuser_password: %s\n", puser.user, puser.pawd);
-                    printf("<IP: %s> <PORT: %d> has Connect the server...\n", inet_ntop(AF_INET, &client_addr.sin_addr.s_addr, IP, MAX_DATA_SIZE), ntohs(client_addr.sin_port));
-                    printf("Now has %d Users online...\n", (int)User.size());
-                    maxClientFd = max(maxClientFd, client_sock);
-                    //FD_SET(client_sock, &client_fd);
-                }
-                break;
-            }
-        }
-        
-        for(auto user : User) {
-            FD_SET(user, &client_fd);
-        }
-        
-        switch(select(maxClientFd + 1, &client_fd, NULL, NULL, &timeout)) {
-            case -1: {
-                perror("select2");
-                break;
-            }
-            case 0: {
-                break;
-            }
-            default: {
-                for(auto i : User) {
-                    if(FD_ISSET(i, &client_fd)) {
-                        ssize_t len = 0;
-                        len = read(i, recvBuff, sizeof(recvBuff));
-                        if(len <= 0) {
-                            FD_CLR(i, &client_fd);
-                            User.erase(i);
-                            close(i);
-                            puts("close");
-                        } else {
-                            recvBuff[(int)len] = '\0';
-                            printf("#Client: %s", recvBuff);
-                            memset(recvBuff, 0, MAX_DATA_SIZE);
-                        }
-                    }
-                }
-                break;
-            }
-        }
-        
-        FD_ZERO(&server_fd);
-        FD_SET(STDIN_FILENO, &server_fd) ;
-        
-        switch (select(STDIN_FILENO + 1, &server_fd, NULL, NULL, &timeout)) {
-            case -1: {
-                perror("select3");
-                break;
-            }
-            case 0: break;
-            default: {
-                if(FD_ISSET(STDIN_FILENO, &server_fd)) {
-                    fgets(sendBuff, sizeof(sendBuff), stdin);
-                    
-                    for(auto user : User) {
-                        int len = (int)write(user, sendBuff, sizeof(sendBuff));
-                        if(len <= 0) {
-                            printf("fail to send Message to User: %d\n", user);
-                        } else {
-                            printf("success to send Message to User: %d\n", user);
-                        }
-                    }
-                    
-                    fflush(stdin);
-                    memset(sendBuff, 0, sizeof(sendBuff));
-                }
-                break;
-            }
-        }
-        
-    }
-    
-    for(auto user : User) {
-        close(user);
-    }
-    close(server_sock);
-    User.clear();
+    Server chat_server(atoi(argv[1]));
+    chat_server.Work();
     return 0;
 }
