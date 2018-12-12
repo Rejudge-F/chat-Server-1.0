@@ -18,7 +18,7 @@
 #define max(a, b) (a > b ? a : b)
 #define HOST "localhost"
 #define USER_NAME "root"
-#define PASSWORD "Zhangfeng//0"
+#define PASSWORD ""
 #define DATABASE "users"
 #define BACKLOG 128
 #define MAX_DATA_SIZE 1024
