@@ -1,6 +1,6 @@
 // client.cpp
 // create by ReJ
-// date: 2018/12/12
+// date: 2018/12/14
 #include <unistd.h>
 #include <iostream>
 #include <stdio.h>
@@ -11,10 +11,11 @@
 #include <algorithm>
 #include <sys/errno.h>
 #include <sys/select.h>
+#include "header/Message/Message.h"
 
 #define MAX_DATA_SIZE 1024
 
-struct User {
+class User {
 public:
     User() {};
     User(int _sock, int _id, char * _name, char * _password) {
@@ -33,7 +34,7 @@ public:
 void printtime() {
     time_t timeep;
     time(&timeep);
-    printf("%s\n", ctime(&timeep));
+    printf("%s", ctime(&timeep));
 }
 
 int main(int argc, char * argv[]) {
@@ -44,6 +45,7 @@ int main(int argc, char * argv[]) {
     fd_set server_fd;
     char send_buff[MAX_DATA_SIZE], recv_buff[MAX_DATA_SIZE];
     User client;
+    Message send_message;
     int server_sock = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
@@ -71,6 +73,7 @@ int main(int argc, char * argv[]) {
         exit(0);
     }
     puts("登录成功");
+    puts("********************************************************");
     memset(recv_buff, 0, sizeof(recv_buff));
 
     int max_server_fd = 0;
@@ -95,7 +98,8 @@ int main(int argc, char * argv[]) {
                         exit(1);
                      }
                      printtime();
-                     printf("#server: %s", recv_buff);
+                     //printf("recive message!!!!!!!\n");
+                     printf("%s\n", recv_buff);
                      memset(recv_buff, 0, sizeof(recv_buff));
                 }
             }
@@ -115,7 +119,11 @@ int main(int argc, char * argv[]) {
                         perror("read failed");
                         exit(1);
                     }
-                    ssize_t send_len = write(server_sock, recv_buff, MAX_DATA_SIZE);
+                    if(send_message.setMessage((std::string)recv_buff) == false) {
+                        puts("Usage: message->user_id");
+                        break;
+                    }
+                    ssize_t send_len = write(server_sock, (void *) &send_message , sizeof(Message));
                     if(send_len <= 0) {
                         perror("write failed");
                         exit(1);
