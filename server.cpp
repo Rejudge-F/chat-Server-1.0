@@ -1,6 +1,6 @@
 // server.cpp
 // create by ReJ
-// date: 2018/12/12
+// date: 2018/12/14
 #include <cstdlib>
 #include <cstdio>
 #include <stdio.h>
@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 #include <sys/errno.h>
 #include <arpa/inet.h>
+#include <iostream>
 #include <unistd.h>
 #include <ctime>
 #include <string>
@@ -15,10 +16,12 @@
 #include <string.h>
 #include <sys/select.h>
 #include <set>
+#include <unordered_map>
+#include "header/Message/Message.h"
 #define max(a, b) (a > b ? a : b)
 #define HOST "localhost"
 #define USER_NAME "root"
-#define PASSWORD ""
+#define PASSWORD "Zhangfeng//0"
 #define DATABASE "users"
 #define BACKLOG 128
 #define MAX_DATA_SIZE 1024
@@ -41,10 +44,10 @@ public:
     char name[15];
     char password[20];
 };
-
 class Server {
 public:
     Server(int port) {
+        find_user_info.clear();
         server_sock = socket(AF_INET, SOCK_STREAM, 0);
         client_sock = socket(AF_INET, SOCK_STREAM, 0);
         memset(&client_addr, 0, sizeof(client_addr));
@@ -98,7 +101,8 @@ public:
     }
 
     bool Work() {
-        if(bind(server_sock, (sockaddr *) & server_addr, sizeof(server_addr)) < 0) {
+        int bind_fd;
+        if((bind_fd = bind(server_sock, (sockaddr *) & server_addr, sizeof(server_addr))) < 0) {
             perror("bind failed");
             exit(1);
         }
@@ -118,8 +122,11 @@ public:
             FD_ZERO(&server_fd);
             FD_ZERO(&client_fd);
             FD_ZERO(&stdin_fd);
+            find_user_info.clear();
+            //printf("%d\n", server_sock);
             FD_SET(server_sock, &server_fd);
             server_max_fd = max(server_max_fd, server_sock);
+            client_max_fd = 0;
             timeout.tv_usec = 500;
             // select accept
             switch (select(server_max_fd + 1, &server_fd, NULL, NULL, &timeout)) {
@@ -145,7 +152,7 @@ public:
                                 client.sock = client_sock;
                                 inet_ntop(AF_INET, &client_addr.sin_addr.s_addr, client.IP, sizeof(client.IP));
                                 total_user.insert(client);
-                                printf("%s has login...", client.name);
+                                printf("%s has login...\n", client.name);
                                 printf("now has %d users online...\n", (int)total_user.size());
                                 strcpy(send_buff, "yes");
                                 write(client_sock, send_buff, sizeof(send_buff));
@@ -157,7 +164,6 @@ public:
                                 break;
                             }
                             memset(send_buff, 0, sizeof(send_buff));
-                            client_max_fd = max(client_max_fd, client_sock);
                         }
                     }
                     break;          
@@ -167,6 +173,9 @@ public:
 
             for(auto user : total_user) {
                 FD_SET(user.sock, &client_fd);
+                find_user_info[user.id] = user;
+                client_max_fd = max(client_max_fd, user.sock);
+                //printf("%d\n", user.id);
             }
 
             /***************select read start*******************/
@@ -179,15 +188,20 @@ public:
                 default :{
                     for(auto user : total_user) {
                         if(FD_ISSET(user.sock, &client_fd)) {
-                            ssize_t recv_len = read(user.sock, recv_buff, MAX_DATA_SIZE);
+                            ssize_t recv_len = read(user.sock, (void *) & message, sizeof(Message));
                             if(recv_len <= 0) {
                                 printf("%d has offline...\n", user.id);
+                                find_user_info.erase(user.id);
                                 total_user.erase(user);
-                                //close(user.sock);
+                                close(user.sock);
                             } else {
                                 printtime();
-                                printf("%s: %s", user.name, recv_buff);
-                                memset(recv_buff, 0, sizeof(recv_buff));
+                                printf("%s -> %s: %s\n", user.name,find_user_info[message.getAddress()].name, message.getMessage().c_str());
+                                std::string send_message = (std::string)user.name + ": " + message.getMessage();
+                                strcpy(send_buff, send_message.c_str());
+                                write(find_user_info[message.getAddress()].sock, send_buff, MAX_DATA_SIZE);
+                                message.clear();
+                                memset(send_buff, 0, sizeof(send_buff));
                             }
                         }
                     }         
@@ -208,8 +222,9 @@ public:
                 default : {
                     if(FD_ISSET(STDIN_FILENO, &stdin_fd)) {
                         read(STDIN_FILENO, send_buff, MAX_DATA_SIZE);
+                        std::string send_message = "Server: " + (std::string)send_buff;
                         for(auto user : total_user) {
-                            ssize_t len = write(user.sock, send_buff, strlen(send_buff));
+                            ssize_t len = write(user.sock, send_message.c_str(), send_message.length());
                             if(len < 0) {
                                 perror("send faied");
                             } else {
@@ -225,7 +240,9 @@ public:
 private:
     int client_sock;
     int server_sock;
+    Message message;
     User client;
+    std::unordered_map<int, User> find_user_info;
     std::set<User> total_user;
     sockaddr_in server_addr, client_addr;
     char IP[MAX_DATA_SIZE], recv_buff[MAX_DATA_SIZE], send_buff[MAX_DATA_SIZE];
