@@ -19,8 +19,10 @@ bool Message::setMessage(std::string _message) {
             break;
         }
     }
-    for(auto c : address) {
-        if(!isdigit(c)) {
+    len = address.length();
+    for(int i = 0; i < len - 1; i++) { //len-1 for '\n'
+        if(!isdigit(address[i])) {
+            printf("*%c", address[i]);
             return false;
         }
     }
