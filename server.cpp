@@ -21,7 +21,7 @@
 #define max(a, b) (a > b ? a : b)
 #define HOST "localhost"
 #define USER_NAME "root"
-#define PASSWORD ""
+#define PASSWORD "Zhangfeng//0"
 #define DATABASE "users"
 #define BACKLOG 128
 #define MAX_DATA_SIZE 1024
@@ -38,6 +38,7 @@ public:
     bool operator < (const User & b) const {
         return id < b.id;
     }
+    int op;
     int id;
     int sock;
     char IP[15];
@@ -94,6 +95,34 @@ public:
 
     }
 
+    bool mysql_register(User &client) {
+        MYSQL mysql_conn;
+        MYSQL_RES * ptr_res;
+        MYSQL_ROW result_row;
+        mysql_init(&mysql_conn);
+        char insr[256];
+        sprintf(insr, "insert into clients values('%d', '%s', '%s');", client.id, client.name, client.password);
+        char sql[256] = "select * from clients where id = \'";
+        strcat(sql, std::to_string(client.id).c_str());
+        strcat(sql, "\'");
+        if(mysql_real_connect(&mysql_conn, HOST, USER_NAME, PASSWORD, DATABASE, 0, NULL, 0)) {
+            int res = mysql_query(&mysql_conn, sql);
+            if(res) {
+                return false;
+            } else {
+                ptr_res = mysql_store_result(&mysql_conn);
+                int row = mysql_num_rows(ptr_res);
+                if(row > 0) return false;
+                else {
+                   res = mysql_query(&mysql_conn, insr);
+                   if(res) return false;
+                   return true;
+                }
+            }
+        }
+        return true;
+    }
+
     void printtime() {
         time_t timeep;
         time(&timeep);
@@ -148,6 +177,14 @@ public:
                             close(client_sock);
                         } else {
                             printf("user_name: %d\nuser_password: %s\n", client.id, client.password);
+                            if(client.op == 0) {
+                                if(!mysql_register(client)) {
+                                    strcpy(send_buff, "no");
+                                    write(client_sock, send_buff, sizeof(send_buff));
+                                    printf("%d register failed", client.id);
+                                    break;
+                                }
+                            }
                             if(mysql_check_login(client)) {
                                 client.sock = client_sock;
                                 inet_ntop(AF_INET, &client_addr.sin_addr.s_addr, client.IP, sizeof(client.IP));
