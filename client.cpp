@@ -24,6 +24,7 @@ public:
         strcpy(name, _name);
         strcpy(password, _password);
     }
+    int op;
     int id;
     int sock;
     char IP[15];
@@ -38,13 +39,17 @@ void printtime() {
 }
 
 int main(int argc, char * argv[]) {
-    if(argc != 5) {
-        puts("./cient <IP> <PORT> <ID> <PASSWORD>");
+    if(argc != 6) {
+        puts("./cient <IP> <PORT> <ID> <PASSWORD> <OP>");
         exit(0);
     }
     fd_set server_fd;
     char send_buff[MAX_DATA_SIZE], recv_buff[MAX_DATA_SIZE];
     User client;
+    if(atoi(argv[5]) == 0) {
+        printf("please input your user_name: ");
+        scanf("%s", client.name);
+    }
     Message send_message;
     int server_sock = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in server_addr;
@@ -57,6 +62,7 @@ int main(int argc, char * argv[]) {
         perror("connect failed");
         exit(1);
     }
+    client.op = atoi(argv[5]);
     client.id = atoi(argv[3]);
     strcpy(client.password, argv[4]);
     if((write(server_sock, (char *) & client, sizeof(client))) <= 0) {
@@ -67,15 +73,23 @@ int main(int argc, char * argv[]) {
         perror("read result failed...");
         exit(1);
     }
-
-    if(recv_buff[0] == 'n') {
-        puts("please check user_name or user_password");
-        exit(0);
+    if(atoi(argv[5]) == 1) {
+        if(recv_buff[0] == 'n') {
+            puts("please check user_name or user_password");
+            exit(0);
+        }
+        puts("登录成功");
+        puts("********************************************************");
+        memset(recv_buff, 0, sizeof(recv_buff));
+    } else {
+        if(recv_buff[0] == 'n') {
+            perror("register failed");
+            exit(1);
+        } else {
+            printf("register succenss ans has login with user: %s\n", client.name);
+        }
+        memset(recv_buff, 0, sizeof(recv_buff));
     }
-    puts("登录成功");
-    puts("********************************************************");
-    memset(recv_buff, 0, sizeof(recv_buff));
-
     int max_server_fd = 0;
     timeval timeout = {0};
     timeout.tv_usec = 500;
@@ -114,11 +128,13 @@ int main(int argc, char * argv[]) {
             case 0: break;
             default : {
                 if(FD_ISSET(STDIN_FILENO, &server_fd)) {
+                    memset(recv_buff, 0, sizeof(recv_buff));
                     ssize_t recv_len = read(STDIN_FILENO, recv_buff, MAX_DATA_SIZE);
                     if(recv_len <= 0) {
                         perror("read failed");
                         exit(1);
                     }
+                    //check message is vaild
                     if(send_message.setMessage((std::string)recv_buff) == false) {
                         puts("Usage: message->user_id");
                         break;
