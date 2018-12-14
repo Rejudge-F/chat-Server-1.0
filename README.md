@@ -6,6 +6,7 @@ $: ./server [PORT]
 $: ./client [IP] [PORT] [ID] [PASSWD] [OP]
 
 如果参数中的OP为1则进入注册模式，注册账号即为所填写的ID，密码为PASSWD， 昵称将会提示输入。
+
 如果参数中的OP为0则进入登录模式，正常登录即可。
   
 消息发送格式：[message]->[user_id](无中括号)
