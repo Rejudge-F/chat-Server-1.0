@@ -17,14 +17,18 @@
 #include <sys/select.h>
 #include <set>
 #include <unordered_map>
+#include <vector>
 #include "header/Message/Message.h"
 #define max(a, b) (a > b ? a : b)
 #define HOST "localhost"
 #define USER_NAME "root"
-#define PASSWORD ""
+#define PASSWORD "980530"
 #define DATABASE "users"
 #define BACKLOG 128
 #define MAX_DATA_SIZE 1024
+using std::string;
+using std::set;
+using std::vector;;
 
 class User {
 public:
@@ -154,6 +158,7 @@ public:
             find_user_info.clear();
             //printf("%d\n", server_sock);
             FD_SET(server_sock, &server_fd);
+            server_max_fd = 0;
             server_max_fd = max(server_max_fd, server_sock);
             client_max_fd = 0;
             timeout.tv_usec = 500;
@@ -193,14 +198,12 @@ public:
                                 printf("now has %d users online...\n", (int)total_user.size());
                                 strcpy(send_buff, "yes");
                                 write(client_sock, send_buff, sizeof(send_buff));
-
                             } else {
                                 strcpy(send_buff, "no");
                                 write(client_sock, send_buff, sizeof(send_buff));
                                 printf("Reject login!");
-                                break;
                             }
-                            memset(send_buff, 0, sizeof(send_buff));
+                            memset(send_buff, 0, MAX_DATA_SIZE);
                         }
                     }
                     break;          
@@ -223,26 +226,34 @@ public:
                 }    
                 case 0: break;
                 default :{
+                    vector<User> offline_user;
+                    offline_user.clear();
                     for(auto user : total_user) {
                         if(FD_ISSET(user.sock, &client_fd)) {
-                            ssize_t recv_len = read(user.sock, (void *) & message, sizeof(Message));
+                            message.clear();
+                            ssize_t recv_len = recv(user.sock, (char *) & message, sizeof(Message), 0);
                             if(recv_len <= 0) {
                                 printf("%d has offline...\n", user.id);
-                                find_user_info.erase(user.id);
-                                total_user.erase(user);
+                                if(find_user_info.find(user.id) != find_user_info.end())
+                                    find_user_info.erase(user.id);
+                                offline_user.push_back(user); 
                                 close(user.sock);
                             } else {
                                 printtime();
-                                printf("%s -> %s: %s\n", user.name,find_user_info[message.getAddress()].name, message.getMessage().c_str());
-                                std::string send_message = (std::string)user.name + ": " + message.getMessage();
-                                strcpy(send_buff, send_message.c_str());
-                                write(find_user_info[message.getAddress()].sock, send_buff, MAX_DATA_SIZE);
+                                printf("%s -> %s: %s\n", user.name,find_user_info[message.getAddress()].name, message.getMessage());
+                                sprintf(send_buff, "%s: %s", user.name, message.getMessage());
+                                write(find_user_info[message.getAddress()].sock, send_buff, strlen(send_buff));
                                 message.clear();
                                 memset(send_buff, 0, sizeof(send_buff));
                             }
+                            message.clear();
                         }
-                    }         
+                    }
+                    for(auto user : offline_user) {
+                        total_user.erase(user);
+                    }
                 }
+                break;
             }
             /************select read end***********************/
             
@@ -269,6 +280,7 @@ public:
                             }
                         }
                     }          
+                    break;
                 }
             }
             /***************select write end*******************/
