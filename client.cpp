@@ -128,7 +128,6 @@ int main(int argc, char * argv[]) {
             case 0: break;
             default : {
                 if(FD_ISSET(STDIN_FILENO, &server_fd)) {
-                    memset(recv_buff, 0, sizeof(recv_buff));
                     ssize_t recv_len = read(STDIN_FILENO, recv_buff, MAX_DATA_SIZE);
                     if(recv_len <= 0) {
                         perror("read failed");
@@ -139,12 +138,14 @@ int main(int argc, char * argv[]) {
                         puts("Usage: message->user_id");
                         break;
                     }
-                    ssize_t send_len = write(server_sock, (void *) &send_message , sizeof(Message));
+                    ssize_t send_len = send(server_sock, (char *) &send_message , sizeof(Message), 0);
                     if(send_len <= 0) {
                         perror("write failed");
                         exit(1);
                     }
+                    memset(recv_buff, 0, sizeof(recv_buff));
                 }
+                break;
             }
         }
     }
