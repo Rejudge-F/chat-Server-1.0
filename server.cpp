@@ -270,6 +270,7 @@ public:
                 default : {
                     if(FD_ISSET(STDIN_FILENO, &stdin_fd)) {
                         read(STDIN_FILENO, send_buff, MAX_DATA_SIZE);
+                        if(strlen(send_buff) == 0) break;
                         std::string send_message = "Server: " + (std::string)send_buff;
                         for(auto user : total_user) {
                             ssize_t len = write(user.sock, send_message.c_str(), send_message.length());
